@@ -1,0 +1,13 @@
+anthropic
+fastapi
+uvicorn[standard]
+httpx
+python-dotenv
+pydantic-settings
+sqlalchemy
+google-auth-oauthlib
+google-api-python-client
+google-auth-httplib2
+pytest
+pytest-mock
+pytest-asyncio
