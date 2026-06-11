@@ -8,6 +8,8 @@ A meeting bot that joins Google Meet calls using [Vexa.ai](https://github.com/Ve
 
 [Demo Video](https://drive.google.com/file/d/1eAf139JvkVu1gDDez_VA7IiGhduF8nJS/view?usp=sharing)
 
+![Architecture](architecture.png)
+
 1. The bot joins a Google Meet (by URL directly, or automatically via the Gmail watcher)
 2. It captures the transcript
 3. Ask for a digest or ask any question about the meeting
