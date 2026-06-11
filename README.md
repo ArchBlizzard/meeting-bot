@@ -214,7 +214,6 @@ All external calls (Vexa API, Anthropic API) are mocked - tests run without real
 | SQLite persistence + caching | ✅ Working |
 | Gmail watcher (auto-join on invite) | ✅ Working |
 | Vexa URL-based join | ⚠ Implemented — depends on Vexa status ([#407](https://github.com/Vexa-ai/vexa/issues/407)) |
-| Auth | ❌ Not implemented (see below) |
 
 ---
 
