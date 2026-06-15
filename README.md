@@ -196,10 +196,9 @@ All external calls (Vexa API, Anthropic API) are mocked — tests run without an
 | Claude Q&A over full transcript | ✅ |
 | Digest caching in SQLite | ✅ |
 | Vexa bot join with authenticated Google session | ✅ |
-| Bot named **Schrödinger** — simultaneously in the meeting and not in the meeting until observed | ✅ |
+| Bot named **Schrödinger** XD| ✅ |
 | Auto-leave after 60 s of silence | ✅ |
 | SSE stream for Gmail watcher status | ✅ |
-| 54 unit tests (all mocked, no external deps) | ✅ |
 
 ---
 
