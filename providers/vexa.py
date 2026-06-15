@@ -27,7 +27,7 @@ class VexaProvider(BotProvider):
                     "platform": "google_meet",
                     "native_meeting_id": native_id,
                     "authenticated": True,
-                    "bot_name": "Meeting Bot",
+                    "bot_name": "Schrödinger",
                     "automatic_leave": {"max_time_left_alone": 60000},
                 },
                 timeout=30.0,

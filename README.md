@@ -6,7 +6,7 @@ A meeting bot that joins Google Meet calls using [Vexa.ai](https://github.com/Ve
 
 ## Demo
 
-[Demo Video](https://drive.google.com/file/d/1eAf139JvkVu1gDDez_VA7IiGhduF8nJS/view?usp=sharing)
+[Demo Video](https://drive.google.com/file/d/1uqx1Ohy2XAULRiyM-9eb8ErgSOPkxcBf/view?usp=sharing)
 
 ![Architecture](architecture.png)
 
@@ -140,13 +140,6 @@ Trigger a bot to join a meeting.
 { "url": "https://meet.google.com/xxx-xxxx-xxx" }
 ```
 
-**Auto-join by email** (Gmail watcher picks up the invite):
-```json
-{ "email": "bot@centralagent.ai" }
-```
-
-Returns `meeting_id` — use this in all subsequent calls.
-
 ### `GET /meeting/{id}/status`
 
 Poll transcript availability. When `transcript_ready` is `true`, call `/digest` or `/ask`.
@@ -203,6 +196,7 @@ All external calls (Vexa API, Anthropic API) are mocked — tests run without an
 | Claude Q&A over full transcript | ✅ |
 | Digest caching in SQLite | ✅ |
 | Vexa bot join with authenticated Google session | ✅ |
+| Bot named **Schrödinger** — simultaneously in the meeting and not in the meeting until observed | ✅ |
 | Auto-leave after 60 s of silence | ✅ |
 | SSE stream for Gmail watcher status | ✅ |
 | 54 unit tests (all mocked, no external deps) | ✅ |
