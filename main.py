@@ -77,13 +77,3 @@ app = FastAPI(
 )
 
 app.include_router(router)
-
-
-@app.get("/health")
-def health():
-    return {
-        "status": "ok",
-        "provider": settings.BOT_PROVIDER,
-        "model": settings.ANTHROPIC_MODEL,
-        "gmail_watcher": settings.GMAIL_ENABLED,
-    }

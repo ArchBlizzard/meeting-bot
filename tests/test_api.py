@@ -1,4 +1,3 @@
-import json
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
@@ -6,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from main import app
 from providers.mock import MockBotProvider
 from providers.base import VexaUnavailableError
-from database.models import Meeting
+from database.session import get_db
 
 
 @pytest.fixture
@@ -15,11 +14,12 @@ def client(tmp_path):
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from database.models import Base
-    from database.session import get_db
     import main
 
-    test_db_url = f"sqlite:///{tmp_path}/test.db"
-    engine = create_engine(test_db_url, connect_args={"check_same_thread": False})
+    engine = create_engine(
+        f"sqlite:///{tmp_path}/test.db",
+        connect_args={"check_same_thread": False},
+    )
     Base.metadata.create_all(bind=engine)
     TestSession = sessionmaker(bind=engine)
 
@@ -30,9 +30,7 @@ def client(tmp_path):
         finally:
             db.close()
 
-    mock_provider = MockBotProvider()
-    main.provider = mock_provider
-
+    main.provider = MockBotProvider()
     app.dependency_overrides[get_db] = override_db
 
     with TestClient(app) as c:
@@ -46,18 +44,19 @@ def client(tmp_path):
 class TestJoinEndpoint:
     def test_join_by_url_returns_200(self, client):
         c, _ = client
-        resp = c.post("/meeting/join", json={"url": "https://meet.google.com/abc"})
+        resp = c.post("/meeting/join", json={"url": "https://meet.google.com/abc-defg-hij"})
         assert resp.status_code == 200
         data = resp.json()
-        assert "meeting_id" in data
+        assert data["meeting_id"] == "abc-defg-hij"
         assert data["mode"] == "url"
+        assert "message" in data
 
     def test_join_by_email_returns_200(self, client):
         c, _ = client
         resp = c.post("/meeting/join", json={"email": "bot@centralagent.ai"})
         assert resp.status_code == 200
         data = resp.json()
-        assert "meeting_id" in data
+        assert data["meeting_id"].startswith("mock-")
         assert data["mode"] == "email"
 
     def test_join_with_neither_returns_422(self, client):
@@ -68,144 +67,110 @@ class TestJoinEndpoint:
     def test_join_returns_503_when_vexa_unavailable(self, client):
         import main
         c, _ = client
-        bad_provider = MagicMock()
-        bad_provider.join_by_url.side_effect = VexaUnavailableError("Vexa is down")
-        bad_provider.get_transcript.return_value = ""
-        main.provider = bad_provider
-
+        bad = MagicMock()
+        bad.join_by_url.side_effect = VexaUnavailableError("Vexa is down")
+        main.provider = bad
         resp = c.post("/meeting/join", json={"url": "https://meet.google.com/abc"})
         assert resp.status_code == 503
-
-        # restore
         main.provider = MockBotProvider()
 
-    def test_email_flow_returns_active_status(self, client):
-        c, _ = client
-        resp = c.post("/meeting/join", json={"email": "bot@centralagent.ai"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["mode"] == "email"
-        assert data["status"] == "active"
-        assert "Poll" in data["message"]
 
-    def test_url_flow_returns_complete_status(self, client):
+# ── GET /meeting/{id}/status ──────────────────────────────────────────────────
+
+class TestStatusEndpoint:
+    def test_url_join_transcript_immediately_ready(self, client):
         c, _ = client
-        resp = c.post("/meeting/join", json={"url": "https://meet.google.com/abc"})
+        join = c.post("/meeting/join", json={"url": "https://meet.google.com/abc-defg-hij"})
+        mid = join.json()["meeting_id"]
+        resp = c.get(f"/meeting/{mid}/status")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "complete"
+        assert resp.json()["transcript_ready"] is True
+
+    def test_email_join_transcript_not_ready_immediately(self, client):
+        c, _ = client
+        join = c.post("/meeting/join", json={"email": "bot@centralagent.ai"})
+        mid = join.json()["meeting_id"]
+        resp = c.get(f"/meeting/{mid}/status")
+        assert resp.status_code == 200
+        assert resp.json()["transcript_ready"] is False
+
+    def test_unknown_meeting_id_returns_200(self, client):
+        # MockBotProvider treats unknown IDs as URL-flow (always ready)
+        c, _ = client
+        resp = c.get("/meeting/nonexistent-id/status")
+        assert resp.status_code == 200
+        assert "transcript_ready" in resp.json()
 
 
 # ── GET /meeting/{id}/digest ──────────────────────────────────────────────────
 
 class TestDigestEndpoint:
-    def _create_meeting(self, Session, **kwargs):
-        db = Session()
-        m = Meeting(
-            id=kwargs.get("id", "test-id"),
-            url="https://meet.google.com/abc",
-            status="complete",
-        )
-        m.transcript = kwargs.get("transcript", "Alice: hi\nBob: hello")
-        m.digest = kwargs.get("digest", None)
-        db.add(m)
-        db.commit()
-        db.close()
-
-    def test_returns_digest(self, client):
-        c, Session = client
-        self._create_meeting(Session, id="mtg-digest")
+    def test_returns_digest_for_ready_meeting(self, client):
+        c, _ = client
+        join = c.post("/meeting/join", json={"url": "https://meet.google.com/abc-defg-hij"})
+        mid = join.json()["meeting_id"]
 
         fake = {"summary": "Short.", "action_items": ["Do X"], "decisions": ["Use Y"]}
         with patch("brain.claude.ClaudeBrain.generate_digest", return_value=fake):
-            resp = c.get("/meeting/mtg-digest/digest")
+            resp = c.get(f"/meeting/{mid}/digest")
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["summary"] == "Short."
         assert "Do X" in data["action_items"]
+        assert "Use Y" in data["decisions"]
 
-    def test_returns_404_for_unknown_meeting(self, client):
+    def test_returns_400_when_transcript_not_ready(self, client):
         c, _ = client
-        resp = c.get("/meeting/nonexistent-id/digest")
-        assert resp.status_code == 404
-
-    def test_returns_400_when_no_transcript(self, client):
-        c, Session = client
-        db = Session()
-        m = Meeting(id="no-transcript", url="https://meet.google.com/abc", status="active")
-        m.transcript = None
-        db.add(m)
-        db.commit()
-        db.close()
-
-        resp = c.get("/meeting/no-transcript/digest")
+        join = c.post("/meeting/join", json={"email": "bot@centralagent.ai"})
+        mid = join.json()["meeting_id"]
+        # Email-flow meeting: transcript NOT ready within the delay window
+        resp = c.get(f"/meeting/{mid}/digest")
         assert resp.status_code == 400
 
 
 # ── POST /meeting/{id}/ask ────────────────────────────────────────────────────
 
 class TestAskEndpoint:
-    def _create_meeting(self, Session, id="ask-id"):
-        db = Session()
-        m = Meeting(id=id, url="https://meet.google.com/abc", status="complete")
-        m.transcript = "Alice: hi\nBob: hello"
-        db.add(m)
-        db.commit()
-        db.close()
-
-    def test_returns_answer(self, client):
-        c, Session = client
-        self._create_meeting(Session)
+    def test_returns_answer_for_ready_meeting(self, client):
+        c, _ = client
+        join = c.post("/meeting/join", json={"url": "https://meet.google.com/abc-defg-hij"})
+        mid = join.json()["meeting_id"]
 
         with patch("brain.claude.ClaudeBrain.ask", return_value="Bob said hello."):
-            resp = c.post("/meeting/ask-id/ask", json={"question": "What did Bob say?"})
+            resp = c.post(f"/meeting/{mid}/ask", json={"question": "What did Bob say?"})
 
         assert resp.status_code == 200
         assert resp.json()["answer"] == "Bob said hello."
         assert resp.json()["question"] == "What did Bob say?"
 
-    def test_returns_404_for_unknown_meeting(self, client):
+    def test_not_ready_email_meeting_returns_400_on_ask(self, client):
         c, _ = client
-        resp = c.post("/meeting/nonexistent/ask", json={"question": "anything?"})
-        assert resp.status_code == 404
+        join = c.post("/meeting/join", json={"email": "bot@centralagent.ai"})
+        mid = join.json()["meeting_id"]
+        # Transcript empty because email-flow delay hasn't elapsed
+        resp = c.post(f"/meeting/{mid}/ask", json={"question": "anything?"})
+        assert resp.status_code == 400
 
 
-# ── GET /meeting/{id}/status ──────────────────────────────────────────────────
+# ── GET /meetings ─────────────────────────────────────────────────────────────
 
-class TestStatusEndpoint:
-    def test_returns_404_for_unknown_meeting(self, client):
+class TestMeetingsEndpoint:
+    def test_returns_empty_list_for_mock_provider(self, client):
         c, _ = client
-        resp = c.get("/meeting/nonexistent/status")
-        assert resp.status_code == 404
+        resp = c.get("/meetings")
+        assert resp.status_code == 200
+        assert resp.json() == []
 
-    def test_returns_active_before_transcript_ready(self, client):
+
+# ── GET /gmail/status ─────────────────────────────────────────────────────────
+
+class TestGmailStatus:
+    def test_returns_status_when_disabled(self, client):
         c, _ = client
-        # Join via email — transcript not ready yet
-        join_resp = c.post("/meeting/join", json={"email": "bot@centralagent.ai"})
-        meeting_id = join_resp.json()["meeting_id"]
-
-        status_resp = c.get(f"/meeting/{meeting_id}/status")
-        assert status_resp.status_code == 200
-        data = status_resp.json()
-        assert data["transcript_ready"] is False
-        assert data["status"] == "active"
-
-    def test_returns_complete_after_url_join(self, client):
-        c, _ = client
-        join_resp = c.post("/meeting/join", json={"url": "https://meet.google.com/abc"})
-        meeting_id = join_resp.json()["meeting_id"]
-
-        status_resp = c.get(f"/meeting/{meeting_id}/status")
-        assert status_resp.json()["transcript_ready"] is True
-
-
-# ── GET /health/vexa ──────────────────────────────────────────────────────────
-
-class TestVexaHealth:
-    def test_mock_provider_returns_ok(self, client):
-        c, _ = client
-        resp = c.get("/health/vexa")
+        resp = c.get("/gmail/status")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "ok"
-        assert data["provider"] == "MockBotProvider"
+        assert "enabled" in data
+        assert "running" in data
+        assert "seen_emails_total" in data

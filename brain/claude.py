@@ -33,31 +33,19 @@ class ClaudeBrain:
         self.db = db
         self.model = model
 
-    def generate_digest(self, meeting_id: str) -> dict:
+    def generate_digest(self, meeting_id: str, transcript: str) -> dict:
         meeting = self.db.query(Meeting).filter(Meeting.id == meeting_id).first()
-        if not meeting:
-            raise ValueError(f"Meeting {meeting_id} not found.")
-
-        if not meeting.transcript:
-            raise ValueError(f"No transcript available for meeting {meeting_id}.")
-
-        if meeting.digest:
+        if meeting and meeting.digest:
             return json.loads(meeting.digest)
 
         response = self.client.messages.create(
             model=self.model,
             max_tokens=2048,
             system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": DIGEST_PROMPT.format(transcript=meeting.transcript),
-                }
-            ],
+            messages=[{"role": "user", "content": DIGEST_PROMPT.format(transcript=transcript)}],
         )
 
         raw = response.content[0].text.strip()
-
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -66,32 +54,19 @@ class ClaudeBrain:
 
         digest = json.loads(raw)
 
+        if not meeting:
+            meeting = Meeting(id=meeting_id)
+            self.db.add(meeting)
         meeting.digest = json.dumps(digest)
         self.db.commit()
 
         return digest
 
-    def ask(self, meeting_id: str, question: str) -> str:
-        meeting = self.db.query(Meeting).filter(Meeting.id == meeting_id).first()
-        if not meeting:
-            raise ValueError(f"Meeting {meeting_id} not found.")
-
-        if not meeting.transcript:
-            return "No transcript is available for this meeting yet."
-
+    def ask(self, meeting_id: str, question: str, transcript: str) -> str:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=1024,
             system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": QA_PROMPT.format(
-                        question=question,
-                        transcript=meeting.transcript,
-                    ),
-                }
-            ],
+            messages=[{"role": "user", "content": QA_PROMPT.format(question=question, transcript=transcript)}],
         )
-
         return response.content[0].text.strip()
